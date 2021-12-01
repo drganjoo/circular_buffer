@@ -18,7 +18,11 @@ typedef struct CBUFFER_H
  */
 CBUFFER_T* cBufferCreate(unsigned size)
 {
+	// one extra byte has to be kept as when the queue is full we cannot
+	// write to write_ptr and move it forward as write_ptr will == read_ptr
+	// and that would mean empty buffer
 	size++;
+
 	CBUFFER_T* buffer = malloc(sizeof(CBUFFER_T) + sizeof(SAMPLE) * size);
 	if (buffer)
 	{
@@ -39,7 +43,7 @@ int cBufferDestroy(CBUFFER_T* cbuffer)
 	if (cbuffer)
 	{
 		free(cbuffer);
-		cbuffer = NULL;
+		// cbuffer = NULL;
 		return 0;
 	}
 
@@ -84,7 +88,10 @@ int cBufferRead(CBUFFER_T* cbuffer, unsigned n, SAMPLE* linearBuff)
 	SAMPLE* end = cbuffer->base_addr + cbuffer->size;
 	while (n--)
 	{
-		*linearBuff++ = *cbuffer->read_ptr++;
+		*linearBuff = *cbuffer->read_ptr;
+		linearBuff++;
+		cbuffer->read_ptr++;
+
 		if (cbuffer->read_ptr >= end)
 			cbuffer->read_ptr = cbuffer->base_addr;
 	}
@@ -106,7 +113,10 @@ int cBufferWrite(CBUFFER_T* cbuffer, unsigned n, const SAMPLE* linearBuff)
 	SAMPLE* end = cbuffer->base_addr + cbuffer->size;
 	while (n--)
 	{
-		*cbuffer->write_ptr++ = *linearBuff++;
+		*cbuffer->write_ptr = *linearBuff;
+		cbuffer->write_ptr++;
+		linearBuff++;
+
 		if (cbuffer->write_ptr >= end)
 			cbuffer->write_ptr = cbuffer->base_addr;
 	}
@@ -119,20 +129,20 @@ int main(void)
 {
 	printf("size of CBUFFER_H structure is: %d bytes\n", sizeof(struct CBUFFER_H));
 	CBUFFER_T *t = cBufferCreate(10);
+	assert(cBufferCalcAmountData(t) == 0);
+	assert(cBufferCalcAmountSpace(t) == 10);
 
 	SAMPLE linear[] = { 1,2,3,4,5,6,7,8,9,10 };
 	cBufferWrite(t, 10, linear);
 
-	unsigned space = cBufferCalcAmountSpace(t);
-	for (int i = 0; i < 10; i++)
-		linear[i] = 0;
+	assert(cBufferCalcAmountSpace(t) == 0);
+	assert(cBufferCalcAmountData(t) == 10);
+
+	memset(linear, 0, sizeof(linear));
 
 	cBufferRead(t, 6, linear);
-	space = cBufferCalcAmountData(t);
-	printf("Amount of data: %d\n", space);
-
-	space = cBufferCalcAmountSpace(t);
-	printf("Amount of space left: %d\n", space);
+	assert(4 == cBufferCalcAmountData(t));
+	assert(6 == cBufferCalcAmountSpace(t));
 	
 	int result = cBufferWrite(t, 8, linear);
 	assert(-1 == result);
@@ -142,31 +152,37 @@ int main(void)
 	linear[2] = 300;
 
 	cBufferWrite(t, 3, linear);
-	space = cBufferCalcAmountSpace(t);
-	assert(space == 3);
-	space = cBufferCalcAmountData(t);
-	assert(space == 7);
+	assert(3 == cBufferCalcAmountSpace(t));
+	assert(7 == cBufferCalcAmountData(t));
 
-	for (int i = 0; i < 10; i++)
-		linear[i] = 0;
+	memset(linear, 0, sizeof(linear));
 
+	// cannot read more data than in the buffer
 	result = cBufferRead(t, 9, linear);
 	assert(-1 == result);
 
 	linear[0] = 900;
 	cBufferWrite(t, 1, linear);
-	space = cBufferCalcAmountData(t);
-	assert(space == 8);
+	assert(8 == cBufferCalcAmountData(t));
+	assert(2 == cBufferCalcAmountSpace(t));
 
-	for (int i = 0; i < 10; i++)
-		linear[i] = 0;
+	memset(linear, 0, sizeof(linear));
 
 	cBufferRead(t, 8, linear);
+	assert(linear[0] == 7);
+	assert(linear[1] == 8);
+	assert(linear[2] == 9);
+	assert(linear[3] == 10);
+	assert(linear[4] == 100);
+	assert(linear[5] == 200);
+	assert(linear[6] == 300);
+	assert(linear[7] == 900);
 
-	space = cBufferCalcAmountSpace(t);
-	assert(space == 10);
-	space = cBufferCalcAmountData(t);
-	assert(space == 0);
+	assert(10 == cBufferCalcAmountSpace(t));
+	assert(0 ==  cBufferCalcAmountData(t));
+
+	cBufferDestroy(t);
+	assert(-1 == cBufferDestroy(t));
 
 	return 0;
 }
